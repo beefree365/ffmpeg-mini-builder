@@ -1,7 +1,7 @@
 name: Build Minimal FFmpeg WASM Core
 
 on:
-  workflow_dispatch: # 支持手动点击运行
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,7 +27,7 @@ jobs:
         run: |
           cd ffmpeg-src
 
-          # 步骤 A: 标准 Emscripten 交叉配置 (不传 -s 参数以通过编译探测)
+          # 步骤 A: 开启 avfilter 并进行轻量配置
           emconfigure ./configure \
             --cc="emcc" \
             --cxx="em++" \
@@ -44,6 +44,7 @@ jobs:
             --disable-all \
             --enable-avcodec \
             --enable-avformat \
+            --enable-avfilter \
             --enable-avutil \
             --enable-swscale \
             --enable-swresample \
@@ -52,18 +53,23 @@ jobs:
             --enable-decoder=h264,hevc,aac \
             --enable-encoder=mjpeg,aac \
             --enable-protocol=file \
-            --enable-filter=scale \
+            --enable-filter=scale,null \
             --extra-cflags="-O3"
 
-          # 步骤 B: 编译静态库 (.a 文件)
+          # 步骤 B: 编译全部静态库 (.a)
           emmake make -j$(nproc)
 
-          # 步骤 C: 编译主入口并链接生成 ffmpeg-core.js 与 ffmpeg-core.wasm
+          # 步骤 C: 链接 fftools/*.c 与静态库生成最终产物
           mkdir -p ../dist
           emcc -O3 \
             -I. -I./fftools \
-            fftools/ffmpeg*.c fftools/cmdutils.c \
-            libavformat/libavformat.a libavcodec/libavcodec.a libswscale/libswscale.a libswresample/libswresample.a libavutil/libavutil.a \
+            fftools/*.c \
+            libavfilter/libavfilter.a \
+            libavformat/libavformat.a \
+            libavcodec/libavcodec.a \
+            libswscale/libswscale.a \
+            libswresample/libswresample.a \
+            libavutil/libavutil.a \
             -s WASM=1 \
             -s ALLOW_MEMORY_GROWTH=1 \
             -s EXPORTED_RUNTIME_METHODS='["FS","callMain","stringToUTF8","UTF8ToString","cwrap","getValue","setValue"]' \
