@@ -1,0 +1,70 @@
+name: Build Minimal FFmpeg WASM Core
+
+on:
+  workflow_dispatch: # 支持手动点击运行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. 快速配置 Emscripten WebAssembly 编译器
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.44'
+
+      # 2. 下载 FFmpeg 源码
+      - name: Download FFmpeg Source
+        run: |
+          git clone --depth 1 -b n6.0 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+
+      # 3. 极简定制裁剪与编译 (仅保留 TS / H.264 / AAC / JPEG / MP4)
+      - name: Build Minimal Core
+        run: |
+          cd ffmpeg-src
+          
+          emconfigure ./configure \
+            --target-os=none \
+            --arch=x86_32 \
+            --enable-cross-compile \
+            --disable-x86asm \
+            --disable-inline-asm \
+            --disable-doc \
+            --disable-programs \
+            --disable-all \
+            --enable-avcodec \
+            --enable-avformat \
+            --enable-avutil \
+            --enable-swscale \
+            --enable-swresample \
+            --enable-demuxer=mpegts,mov,mp4,image2 \
+            --enable-muxer=mp4,image2 \
+            --enable-decoder=h264,hevc,aac \
+            --enable-encoder=mjpeg,aac \
+            --enable-protocol=file \
+            --enable-filter=scale
+
+          emmake make -j$(nproc)
+
+          mkdir -p ../dist
+          emcc -O3 \
+            -I. -I./fftools \
+            -Llibavcodec -Llibavformat -Llibavutil -Llibswscale -Llibswresample \
+            -lavformat -lavcodec -lswscale -lswresample -lavutil \
+            -s WASM=1 \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s EXPORTED_RUNTIME_METHODS='["cwrap", "setValue", "getValue", "UTF8ToString", "stringToUTF8", "FS"]' \
+            -s EXPORT_ES6=1 \
+            -s MODULARIZE=1 \
+            -o ../dist/ffmpeg-core.js
+
+      # 4. 打包产物并输出供下载
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-core-mini
+          path: dist/
