@@ -22,12 +22,12 @@ jobs:
         run: |
           git clone --depth 1 -b n6.0 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
 
-      # 3. 极简裁剪编译并精准链接
+      # 3. 极简裁剪编译并链接
       - name: Build Minimal Core
         run: |
           cd ffmpeg-src
 
-          # 步骤 A: 极简配置
+          # 步骤 A: 极简轻量配置
           emconfigure ./configure \
             --cc="emcc" \
             --cxx="em++" \
@@ -59,20 +59,13 @@ jobs:
           # 步骤 B: 编译全部静态库 (.a)
           emmake make -j$(nproc)
 
-          # 步骤 C: 精准指定 ffmpeg CLI 源文件 (绝不包含 ffplay / ffprobe)
+          # 步骤 C: 自动提取 fftools 下除 ffplay/ffprobe 外的所有源文件进行链接
           mkdir -p ../dist
+          FFTOOLS_SRCS=$(ls fftools/*.c | grep -v 'ffplay' | grep -v 'ffprobe' | grep -v 'ffescape')
+
           emcc -O3 \
             -I. -I./fftools \
-            fftools/ffmpeg.c \
-            fftools/ffmpeg_opt.c \
-            fftools/ffmpeg_filter.c \
-            fftools/ffmpeg_hw.c \
-            fftools/ffmpeg_mux.c \
-            fftools/ffmpeg_mux_init.c \
-            fftools/ffmpeg_demux.c \
-            fftools/cmdutils.c \
-            fftools/sync_queue.c \
-            fftools/opt_common.c \
+            $FFTOOLS_SRCS \
             libavfilter/libavfilter.a \
             libavformat/libavformat.a \
             libavcodec/libavcodec.a \
