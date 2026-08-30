@@ -11,7 +11,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. 配置 Emscripten WebAssembly 编译器
+      # 1. 配置 Emscripten 编译器
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
@@ -22,18 +22,24 @@ jobs:
         run: |
           git clone --depth 1 -b n6.0 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
 
-      # 3. 极简裁剪配置与自动链接生成 ffmpeg-core
+      # 3. 极简裁剪编译并链接
       - name: Build Minimal Core
         run: |
           cd ffmpeg-src
 
-          # 传递 Emscripten 导出参数直接让 FFmpeg 构建系统生成 .js 和 .wasm
+          # 步骤 A: 标准 Emscripten 交叉配置 (不传 -s 参数以通过编译探测)
           emconfigure ./configure \
+            --cc="emcc" \
+            --cxx="em++" \
+            --ar="emar" \
+            --ranlib="emranlib" \
             --target-os=none \
             --arch=x86_32 \
             --enable-cross-compile \
             --disable-x86asm \
             --disable-inline-asm \
+            --disable-stripping \
+            --disable-programs \
             --disable-doc \
             --disable-all \
             --enable-avcodec \
@@ -47,16 +53,25 @@ jobs:
             --enable-encoder=mjpeg,aac \
             --enable-protocol=file \
             --enable-filter=scale \
-            --extra-cflags="-O3" \
-            --extra-ldflags="-s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORT_ES6=1 -s MODULARIZE=1 -s INVOKE_RUN=0 -s EXIT_RUNTIME=1 -s EXPORTED_RUNTIME_METHODS=['FS','callMain','stringToUTF8','UTF8ToString','cwrap','getValue','setValue']"
+            --extra-cflags="-O3"
 
-          # 编译 ffmpeg
+          # 步骤 B: 编译静态库 (.a 文件)
           emmake make -j$(nproc)
 
-          # 提取构建出的 ffmpeg.js / ffmpeg.wasm 并重命名为标准 core 产物
+          # 步骤 C: 编译主入口并链接生成 ffmpeg-core.js 与 ffmpeg-core.wasm
           mkdir -p ../dist
-          cp ffmpeg.js ../dist/ffmpeg-core.js
-          cp ffmpeg.wasm ../dist/ffmpeg-core.wasm
+          emcc -O3 \
+            -I. -I./fftools \
+            fftools/ffmpeg*.c fftools/cmdutils.c \
+            libavformat/libavformat.a libavcodec/libavcodec.a libswscale/libswscale.a libswresample/libswresample.a libavutil/libavutil.a \
+            -s WASM=1 \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s EXPORTED_RUNTIME_METHODS='["FS","callMain","stringToUTF8","UTF8ToString","cwrap","getValue","setValue"]' \
+            -s EXPORT_ES6=1 \
+            -s MODULARIZE=1 \
+            -s INVOKE_RUN=0 \
+            -s EXIT_RUNTIME=1 \
+            -o ../dist/ffmpeg-core.js
 
       # 4. 打包产物
       - name: Upload Artifact
